@@ -55,7 +55,11 @@ header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
 .drop .hint { color: var(--muted); font-size: .88rem; }
 .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .files { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { font-size: .82rem; padding: 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip { font-size: .82rem; padding: 2px 4px 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); max-width: 100%; display: inline-flex; align-items: center; gap: 4px; }
+.chip .cn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip .x { border: 0; background: none; color: inherit; padding: 0 6px; font-size: 1rem; line-height: 1.2; border-radius: 99px; }
+.chip .x:hover { background: var(--panel); }
+.cnt2 { font-family: var(--font-num); font-size: .8rem; color: var(--muted); font-weight: 400; }
 .chip.err { background: var(--neg-soft); color: var(--neg); }
 
 .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -114,8 +118,10 @@ td.pos { color: var(--pos); font-weight: 600; } td.neg { color: var(--neg); font
 .sqlbox { position: relative; min-width: 0; }
 .sqlbox pre { margin: 0; overflow-x: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; font-family: var(--font-num); font-size: .82rem; line-height: 1.55; color: var(--ink); }
 .sqlbox button { position: absolute; top: 8px; right: 8px; padding: 4px 12px; font-size: .82rem; }
-footer { color: var(--muted); font-size: .84rem; border-top: 1px solid var(--line); padding-top: 14px; line-height: 1.7; }
-footer a { color: var(--accent); }
+footer { color: var(--ink); font-size: .9rem; border-top: 2px solid var(--accent); padding-top: 16px; margin-top: 8px; line-height: 1.8; text-align: center; }
+footer .by { color: var(--muted); font-size: .82rem; letter-spacing: .04em; }
+footer .nm { font-weight: 600; font-size: 1rem; }
+footer a { color: var(--accent); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -167,8 +173,8 @@ ORDER BY i.dchdate, i.dchtime, i.an</pre>
       <span class="files" id="listDebtor"></span>
     </label>
     <label class="drop" id="dropStm" for="fStm">
-      <span class="step"><b>2</b> ไฟล์ STM ผู้ป่วยใน UC (เลือกได้หลายไฟล์)</span>
-      <span class="hint">STM_xxxxx_IPUCS…xls ใช้แถบ “รายละเอียด(ข้อมูลปกติ)” และยอดคอลัมน์ U</span>
+      <span class="step"><b>2</b> ไฟล์ STM ผู้ป่วยใน UC หลายงวด <span class="cnt2" id="stmCount"></span></span>
+      <span class="hint">เลือกหลายไฟล์พร้อมกันได้ (กด Ctrl หรือ Shift ค้างไว้ขณะเลือก) หรือลากวางหลายไฟล์ทีเดียว กดเลือกซ้ำเพื่อเพิ่มงวดอื่นต่อได้ ไฟล์เดิมไม่หาย · ใช้แถบ “รายละเอียด(ข้อมูลปกติ)” ยอดคอลัมน์ U</span>
       <input type="file" id="fStm" accept=".xls,.xlsx" multiple>
       <span class="files" id="listStm"></span>
     </label>
@@ -197,7 +203,8 @@ ORDER BY i.dchdate, i.dchtime, i.an</pre>
   </section>
 
   <footer>
-    ออกแบบและพัฒนาโดย นายแพทย์กุลพล ตั้งรัตนาพิบูล<br>
+    <span class="by">ออกแบบและพัฒนาโดย</span><br>
+    <span class="nm">นายแพทย์กุลพล ตั้งรัตนาพิบูล</span><br>
     นายแพทย์ชำนาญการ (ด้านเวชกรรม)<br>
     ปฏิบัติหน้าที่ผู้อำนวยการ<a href="https://www.songkwaehospital.com/" target="_blank" rel="noopener">โรงพยาบาลสองแคว</a> อำเภอสองแคว จังหวัดน่าน
   </footer>
@@ -308,7 +315,12 @@ const fmtSigned = n => (n > 0 ? '+' : '') + fmt(n);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const STLBL = { pos: 'ตั้งต่ำกว่าได้รับจริง', neg: 'ตั้งสูงกว่าได้รับจริง', eq: 'เท่ากัน' };
 
-let debtorFile = null, stmFiles = [], result = null, tab = 'm';
+let debtorFile = null, stmFiles = [], stmInfo = new Map(), result = null, tab = 'm';
+function addStm(list) {
+  const key = f => f.name + '|' + f.size + '|' + f.lastModified;
+  const have = new Set(stmFiles.map(key));
+  [...list].filter(f => /\.xlsx?$/i.test(f.name)).forEach(f => { if (!have.has(key(f))) { stmFiles.push(f); have.add(key(f)); } });
+}
 
 function readBook(file) {
   return file.arrayBuffer().then(buf => XLSX.read(buf, { type: 'array', cellDates: true }));
@@ -324,17 +336,28 @@ async function run() {
     const db = await readBook(debtorFile);
     const debtors = parseDebtors(aoaOf(db.Sheets[db.SheetNames[0]]));
     if (!debtors.length) throw new Error('ไม่พบรายการในไฟล์ลูกหนี้ (ต้องมีคอลัมน์ cid)');
-    let stm = [];
+    let stm = [], dupRows = 0; const seen = new Set();
+    stmInfo = new Map();
     for (const f of stmFiles) {
-      const wb = await readBook(f);
-      const name = wb.SheetNames.find(n => /รายละเอียด/.test(n) && /ข้อมูลปกติ/.test(n));
-      if (!name) throw new Error(`${f.name}: ไม่พบแถบ “รายละเอียด(ข้อมูลปกติ)”`);
-      stm = stm.concat(parseStm(aoaOf(wb.Sheets[name]), f.name));
+      try {
+        const wb = await readBook(f);
+        const name = wb.SheetNames.find(n => /รายละเอียด/.test(n) && /ข้อมูลปกติ/.test(n));
+        if (!name) throw new Error('ไม่พบแถบ “รายละเอียด(ข้อมูลปกติ)”');
+        const rows = parseStm(aoaOf(wb.Sheets[name]), f.name);
+        let added = 0;
+        rows.forEach(r => { const k = r.rep + '|' + r.tran + '|' + r.cid + '|' + r.dc; if (r.tran && seen.has(k)) { dupRows++; return; } seen.add(k); stm.push(r); added++; });
+        stmInfo.set(f, { n: added });
+      } catch (err) { stmInfo.set(f, { err: err.message || String(err) }); }
     }
+    renderChips();
+    const okFiles = stmFiles.filter(f => !stmInfo.get(f).err);
+    if (!okFiles.length) throw new Error('อ่านไฟล์ STM ไม่ได้ทุกไฟล์ ตรวจสอบว่าเป็นไฟล์ STM ผู้ป่วยใน UC');
     result = reconcile(debtors, stm);
-    result.files = stmFiles.map(f => f.name);
+    result.files = okFiles.map(f => f.name);
     result.debtorName = debtorFile.name;
-    setStatus(`จับคู่แล้ว ${result.summary.matched} จาก ${result.summary.debtors} ราย · STM ${result.summary.stmRows} แถว`);
+    const bad = stmFiles.length - okFiles.length;
+    setStatus(`STM ${okFiles.length} ไฟล์ (${result.summary.stmRows} ราย) · จับคู่แล้ว ${result.summary.matched} จาก ${result.summary.debtors} ราย`
+      + (dupRows ? ` · ตัดรายการ STM ซ้ำ ${dupRows} แถว` : '') + (bad ? ` · ข้ามไฟล์ที่อ่านไม่ได้ ${bad} ไฟล์` : ''), bad > 0);
     $('btnExcel').disabled = false;
   } catch (e) {
     result = null; $('btnExcel').disabled = true;
@@ -346,7 +369,12 @@ async function run() {
 function setStatus(t, err) { const s = $('status'); s.textContent = t; s.classList.toggle('err', !!err); }
 function renderChips() {
   $('listDebtor').innerHTML = debtorFile ? `<span class="chip">${esc(debtorFile.name)}</span>` : '';
-  $('listStm').innerHTML = stmFiles.map(f => `<span class="chip">${esc(f.name)}</span>`).join('');
+  $('listStm').innerHTML = stmFiles.map((f, i) => {
+    const info = stmInfo.get(f) || {};
+    const extra = info.err ? ` · ${esc(info.err)}` : info.n != null ? ` · ${info.n} ราย` : '';
+    return `<span class="chip${info.err ? ' err' : ''}" title="${esc(f.name + extra)}"><span class="cn">${esc(f.name)}${extra}</span><button type="button" class="x" data-i="${i}" aria-label="เอาไฟล์ ${esc(f.name)} ออก">×</button></span>`;
+  }).join('');
+  $('stmCount').textContent = stmFiles.length ? `${stmFiles.length} ไฟล์` : '';
 }
 
 function ledgerRows(s) {
@@ -436,7 +464,11 @@ async function buildExcel() {
   ];
   table(ws, 5, ['รายการ', 'จำนวน (ราย)', 'จำนวนเงิน (บาท)'], srows, [58, 14, 20], [3], false);
   [[9, 'FFE2EFDA'], [10, 'FFFCE4D6']].forEach(([row, c]) => [1, 2, 3].forEach(j => ws.getRow(row).getCell(j).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }));
-  const fr = ws.getCell('A16'); fr.value = 'ออกแบบและพัฒนาโดย นายแพทย์กุลพล ตั้งรัตนาพิบูล นายแพทย์ชำนาญการ (ด้านเวชกรรม) ปฏิบัติหน้าที่ผู้อำนวยการโรงพยาบาลสองแคว อำเภอสองแคว จังหวัดน่าน'; fr.font = { name: F, size: 12, italic: true, color: { argb: 'FF808080' } };
+  ['ออกแบบและพัฒนาโดย', 'นายแพทย์กุลพล ตั้งรัตนาพิบูล', 'นายแพทย์ชำนาญการ (ด้านเวชกรรม)', 'ปฏิบัติหน้าที่ผู้อำนวยการโรงพยาบาลสองแคว อำเภอสองแคว จังหวัดน่าน'].forEach((t, i) => {
+    const c = ws.getCell('A' + (17 + i));
+    c.value = i === 3 ? { text: t, hyperlink: 'https://www.songkwaehospital.com/' } : t;
+    c.font = { name: F, size: 13, bold: i === 1, color: { argb: i === 3 ? 'FF0D6A62' : 'FF595959' }, underline: i === 3 };
+  });
 
   ws = wb.addWorksheet('ตัดลูกหนี้ (พบ STM)', { views: [{ state: 'frozen', ySplit: 1 }] });
   table(ws, 1, ['ลำดับ', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'ตั้งลูกหนี้ (บาท)', 'REP', 'AN (STM)', 'เรียกเก็บใน STM', 'AdjRW', 'เบิกได้จริง (U)', 'ส่วนต่าง (U − ตั้ง)', 'สถานะ'],
@@ -476,8 +508,15 @@ async function saveExcel() {
 
 // ---------- wiring ----------
 $('fDebtor').addEventListener('change', e => { debtorFile = e.target.files[0] || null; run(); });
-$('fStm').addEventListener('change', e => { stmFiles = [...e.target.files]; run(); });
-[['dropDebtor', fs => { debtorFile = fs[0]; }], ['dropStm', fs => { stmFiles = fs; }]].forEach(([id, set]) => {
+$('fStm').addEventListener('change', e => { addStm(e.target.files); e.target.value = ''; run(); });
+$('listStm').addEventListener('click', e => {
+  const b = e.target.closest('button.x'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  stmFiles.splice(+b.dataset.i, 1);
+  if (!stmFiles.length) { result = null; $('btnExcel').disabled = true; render(); }
+  run();
+});
+[['dropDebtor', fs => { debtorFile = fs[0]; }], ['dropStm', fs => { addStm(fs); }]].forEach(([id, set]) => {
   const el = $(id);
   el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('over'); });
   el.addEventListener('dragleave', () => el.classList.remove('over'));
