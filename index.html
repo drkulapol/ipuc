@@ -1,9 +1,5 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ตัดลูกหนี้ IP UC</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
@@ -39,7 +35,7 @@
   --neg: #ff8a80; --neg-soft: #3a1c1a; --warn: #f1c46b; --warn-soft: #362a12; color-scheme: dark;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.6; }
 .wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 22px; }
 header h1 { margin: 0; font-size: 1.75rem; line-height: 1.25; font-weight: 700; text-wrap: balance; }
 header p { margin: 4px 0 0; color: var(--muted); max-width: 70ch; }
@@ -92,6 +88,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted); }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .tab .cnt { font-family: var(--font-num); font-size: .8rem; margin-left: 6px; }
+.tabsum { background: var(--panel); border: 1px solid var(--line); border-top: 0; }
 .tablebox { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; max-height: 70vh; }
 table { border-collapse: collapse; width: 100%; font-size: .88rem; }
 th, td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
@@ -124,8 +121,7 @@ footer .nm { font-weight: 600; font-size: 1rem; }
 footer a { color: var(--accent); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
-</head>
-<body>
+
 <div class="wrap">
   <header>
     <div class="eyebrow">ลูกหนี้ผู้ป่วยใน สิทธิ UC · Statement สปสช.</div>
@@ -196,9 +192,11 @@ ORDER BY i.dchdate, i.dchtime, i.an</pre>
   <section aria-label="รายละเอียด">
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" id="tab-m" aria-selected="true" data-k="m">ตัดลูกหนี้ (พบ STM)<span class="cnt" id="c-m">0</span></button>
+      <button class="tab" role="tab" id="tab-a" aria-selected="false" data-k="a">เทียบยอดชดเชยทั้งสิ้น (AL)<span class="cnt" id="c-a">0</span></button>
       <button class="tab" role="tab" id="tab-u" aria-selected="false" data-k="u">ไม่พบ STM<span class="cnt" id="c-u">0</span></button>
       <button class="tab" role="tab" id="tab-o" aria-selected="false" data-k="o">STM ที่ไม่พบในลูกหนี้<span class="cnt" id="c-o">0</span></button>
     </div>
+    <div class="tabsum" id="tabsum" hidden></div>
     <div class="tablebox" id="tablebox"></div>
   </section>
 
@@ -263,13 +261,14 @@ function parseStm(aoa, file) {
   let iU = 20; // คอลัมน์ U
   for (let k = h; k < Math.min(h + 3, aoa.length); k++) (aoa[k] || []).forEach((v, j) => { if (/จ่ายชดเชยหลังหัก/.test(txt(v))) iU = j; });
   const iCharge = col('เรียกเก็บ');
+  let iAL = col('ยอดชดเชยทั้งสิ้น'); if (iAL < 0) iAL = 37; // คอลัมน์ AL
   const out = [];
   for (let i = h + 1; i < aoa.length; i++) {
     const r = aoa[i]; if (!r) continue;
     const c = cidOf(r[col('PID')]); if (c.length !== 13) continue;
     out.push({ rep: txt(r[col('REP')]), tran: txt(r[col('TRAN_ID')]), hn: txt(r[col('HN')]), an: txt(r[col('AN')]), cid: c,
       name: txt(r[col('ชื่อ - สกุล')]), dc: normDate(r[col('วันจำหน่าย')]), charge: num(r[iCharge]),
-      adjrw: num(r[iCharge + 2]), u: num(r[iU]), file });
+      adjrw: num(r[iCharge + 2]), u: num(r[iU]), al: num(r[iAL]), file });
   }
   return out;
 }
@@ -283,13 +282,16 @@ function reconcile(debtors, stm) {
     if (hits) {
       const dup = seenKey.has(k); seenKey.set(k, true);
       const u = dup ? 0 : R2(hits.reduce((a, h) => a + h.u, 0));
+      const al = dup ? 0 : R2(hits.reduce((a, h) => a + h.al, 0));
+      const extra = R2(al - u), diffAll = R2(al - d.amt);
+      const stAll = diffAll > 0.004 ? 'pos' : diffAll < -0.004 ? 'neg' : 'eq';
       hits.forEach(h => used.add(h));
       const diff = R2(u - d.amt);
       let st = diff > 0.004 ? 'pos' : diff < -0.004 ? 'neg' : 'eq';
       const notes = [];
       if (hits.length > 1) notes.push(`STM ${hits.length} แถว (รวมยอด)`);
       if (dup) notes.push('ลูกหนี้ซ้ำ CID+วันที่ ยอด STM นับที่แถวแรกแล้ว');
-      matched.push({ ...d, hits, u, diff, st, note: notes.join(' · ') });
+      matched.push({ ...d, hits, u, diff, st, al, extra, diffAll, stAll, note: notes.join(' · ') });
     } else {
       const near = byCid.get(d.cid) || [];
       unmatched.push({ ...d, note: near.length ? 'พบ CID ใน STM แต่วันจำหน่ายไม่ตรง (' + near.map(h => thDate(h.dc)).join(', ') + ')' : '' });
@@ -302,8 +304,14 @@ function reconcile(debtors, stm) {
     debtors: debtors.length, debtTotal: sum(debtors, 'amt'), stmRows: stm.length,
     matched: matched.length, matchedDebt: sum(matched, 'amt'), matchedU: sum(matched, 'u'), net: sum(matched, 'diff'),
     pos: pos.length, posSum: sum(pos, 'diff'), neg: neg.length, negSum: sum(neg, 'diff'), eq: eq.length,
-    unmatched: unmatched.length, unmatchedSum: sum(unmatched, 'amt'), orphan: orphan.length, orphanU: sum(orphan, 'u')
+    unmatched: unmatched.length, unmatchedSum: sum(unmatched, 'amt'), orphan: orphan.length, orphanU: sum(orphan, 'u'), orphanAL: sum(orphan, 'al')
   };
+  const posA = matched.filter(m => m.stAll === 'pos'), negA = matched.filter(m => m.stAll === 'neg');
+  Object.assign(summary, {
+    matchedAL: sum(matched, 'al'), extraSum: sum(matched, 'extra'), extraN: matched.filter(m => Math.abs(m.extra) > 0.004).length,
+    netAll: sum(matched, 'diffAll'), posAll: posA.length, posAllSum: sum(posA, 'diffAll'), negAll: negA.length, negAllSum: sum(negA, 'diffAll'),
+    eqAll: matched.length - posA.length - negA.length
+  });
   matched.sort((a, b) => a.diff - b.diff);
   return { matched, unmatched, orphan, summary };
 }
@@ -314,6 +322,8 @@ const fmt = n => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFr
 const fmtSigned = n => (n > 0 ? '+' : '') + fmt(n);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const STLBL = { pos: 'ตั้งต่ำกว่าได้รับจริง', neg: 'ตั้งสูงกว่าได้รับจริง', eq: 'เท่ากัน' };
+const STLBL_ALL = { pos: 'ตั้งต่ำกว่ายอดชดเชยทั้งสิ้น', neg: 'ตั้งสูงกว่ายอดชดเชยทั้งสิ้น', eq: 'เท่ากัน' };
+const byAll = xs => [...xs].sort((a, b) => a.diffAll - b.diffAll);
 
 let debtorFile = null, stmFiles = [], stmInfo = new Map(), result = null, tab = 'm';
 function addStm(list) {
@@ -396,14 +406,14 @@ function render() {
     $('ledgerSrc').textContent = 'ยังไม่มีข้อมูล';
     L.innerHTML = `<div class="empty">เมื่อเลือกไฟล์ครบ หน้านี้จะแสดง
       <ol><li>ยอดลูกหนี้ที่ตั้งของรายที่พบ STM เทียบกับยอดเบิกได้จริง</li><li>ส่วนต่างรวม แยกตั้งต่ำกว่า / ตั้งสูงกว่าที่เบิกได้จริง</li><li>รายชื่อลูกหนี้ที่ยังไม่พบ STM</li></ol></div>`;
-    $('tablebox').innerHTML = ''; ['m', 'u', 'o'].forEach(k => $('c-' + k).textContent = '0');
+    $('tablebox').innerHTML = ''; $('tabsum').hidden = true; ['m', 'a', 'u', 'o'].forEach(k => $('c-' + k).textContent = '0');
     return;
   }
   const s = result.summary;
   $('ledgerSrc').textContent = result.files.join(', ');
   L.innerHTML = ledgerRows(s).map(([cls, lbl, sm, n, amt]) =>
     `<div class="lrow ${cls}"><div class="lbl">${lbl}${sm ? `<small>${sm}</small>` : ''}</div><div class="n">${n.toLocaleString('th-TH')} ราย</div><div class="amt">${cls.includes('pos') || cls.includes('neg') || lbl === 'ส่วนต่างสุทธิ' ? fmtSigned(amt) : fmt(amt)}</div></div>`).join('');
-  $('c-m').textContent = result.matched.length; $('c-u').textContent = result.unmatched.length; $('c-o').textContent = result.orphan.length;
+  $('c-m').textContent = result.matched.length; $('c-a').textContent = result.matched.length; $('c-u').textContent = result.unmatched.length; $('c-o').textContent = result.orphan.length;
   renderTable();
 }
 
@@ -416,12 +426,30 @@ function renderTable() {
     rows = result.matched.map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.hn)}</td><td>${esc(m.an)}</td><td>${m.cid}</td><td>${thDate(m.dc)}</td><td>${esc(m.name)}</td>
       <td class="num">${fmt(m.amt)}</td><td>${esc(m.hits.map(h => h.rep).join(', '))}</td><td class="num">${m.hits.reduce((a, h) => a + h.adjrw, 0).toFixed(4)}</td>
       <td class="num">${fmt(m.u)}</td><td class="num ${m.st}">${fmtSigned(m.diff)}</td><td><span class="pill ${m.st}">${STLBL[m.st]}</span>${m.note ? ` <span class="pill warn">${esc(m.note)}</span>` : ''}</td></tr>`);
+  } else if (tab === 'a') {
+    head = ['#', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'ตั้งลูกหนี้|n', 'เบิกได้จริง (U)|n', 'ชดเชยทั้งสิ้น (AL)|n', 'ส่วนเพิ่ม AL − U|n', 'ส่วนต่าง AL − ตั้ง|n', 'สถานะ'];
+    rows = byAll(result.matched).map((m, i) => `<tr><td>${i + 1}</td><td>${esc(m.hn)}</td><td>${esc(m.an)}</td><td>${m.cid}</td><td>${thDate(m.dc)}</td><td>${esc(m.name)}</td>
+      <td class="num">${fmt(m.amt)}</td><td class="num">${fmt(m.u)}</td><td class="num">${fmt(m.al)}</td><td class="num${m.extra > 0.004 ? ' pos' : m.extra < -0.004 ? ' neg' : ''}">${fmtSigned(m.extra)}</td>
+      <td class="num ${m.stAll}">${fmtSigned(m.diffAll)}</td><td><span class="pill ${m.stAll}">${STLBL_ALL[m.stAll]}</span></td></tr>`);
   } else if (tab === 'u') {
     head = ['#', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'ตั้งลูกหนี้|n', 'หมายเหตุ'];
     rows = result.unmatched.map((d, i) => `<tr><td>${i + 1}</td><td>${esc(d.hn)}</td><td>${esc(d.an)}</td><td>${d.cid}</td><td>${thDate(d.dc)}</td><td>${esc(d.name)}</td><td class="num">${fmt(d.amt)}</td><td>${d.note ? `<span class="pill warn">${esc(d.note)}</span>` : ''}</td></tr>`);
   } else {
-    head = ['#', 'REP', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'เรียกเก็บใน STM|n', 'เบิกได้จริง (U)|n', 'ไฟล์'];
-    rows = result.orphan.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.rep)}</td><td>${esc(s.hn)}</td><td>${esc(s.an)}</td><td>${s.cid}</td><td>${thDate(s.dc)}</td><td>${esc(s.name)}</td><td class="num">${fmt(s.charge)}</td><td class="num">${fmt(s.u)}</td><td>${esc(s.file)}</td></tr>`);
+    head = ['#', 'REP', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'เรียกเก็บใน STM|n', 'เบิกได้จริง (U)|n', 'ชดเชยทั้งสิ้น (AL)|n', 'ไฟล์'];
+    rows = result.orphan.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.rep)}</td><td>${esc(s.hn)}</td><td>${esc(s.an)}</td><td>${s.cid}</td><td>${thDate(s.dc)}</td><td>${esc(s.name)}</td><td class="num">${fmt(s.charge)}</td><td class="num">${fmt(s.u)}</td><td class="num">${fmt(s.al)}</td><td>${esc(s.file)}</td></tr>`);
+  }
+  const ts = $('tabsum');
+  ts.hidden = tab !== 'a';
+  if (tab === 'a') {
+    const s = result.summary;
+    ts.innerHTML = [
+      ['key', 'ลูกหนี้ที่พบ STM — ยอดตั้งตามเรียกเก็บ', 'คอลัมน์ G', s.matched, s.matchedDebt, false],
+      ['sub', 'ยอดชดเชยทั้งสิ้นตาม STM', 'คอลัมน์ AL ยอดชดเชยสุทธิทั้งราย', s.matched, s.matchedAL, false],
+      ['sub', 'ส่วนเพิ่มจากชดเชยตาม AdjRW (AL − U)', `ยอดที่ได้เพิ่มนอกเหนือคอลัมน์ U เช่น HC, AE, INST, DMIS · มีส่วนเพิ่ม ${s.extraN} ราย`, s.matched, s.extraSum, true],
+      ['pos sub', 'ส่วนต่าง: ตั้งต่ำกว่ายอดชดเชยทั้งสิ้น', 'AL มากกว่าที่ตั้ง (ส่วนต่าง +)', s.posAll, s.posAllSum, true],
+      ['neg sub', 'ส่วนต่าง: ตั้งสูงกว่ายอดชดเชยทั้งสิ้น', 'AL น้อยกว่าที่ตั้ง (ส่วนต่าง −)', s.negAll, s.negAllSum, true],
+      ['sub', 'ส่วนต่างสุทธิ (AL − ตั้งลูกหนี้)', `เท่ากันพอดี ${s.eqAll} ราย`, s.matched, s.netAll, true],
+    ].map(([cls, lbl, sm, n, amt, sg]) => `<div class="lrow ${cls}"><div class="lbl">${lbl}<small>${sm}</small></div><div class="n">${n.toLocaleString('th-TH')} ราย</div><div class="amt">${sg ? fmtSigned(amt) : fmt(amt)}</div></div>`).join('');
   }
   box.innerHTML = rows.length
     ? `<table><thead><tr>${head.map(h => { const [t, n] = h.split('|'); return `<th${n ? ' class="num"' : ''}>${t}</th>`; }).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`
@@ -464,8 +492,18 @@ async function buildExcel() {
   ];
   table(ws, 5, ['รายการ', 'จำนวน (ราย)', 'จำนวนเงิน (บาท)'], srows, [58, 14, 20], [3], false);
   [[9, 'FFE2EFDA'], [10, 'FFFCE4D6']].forEach(([row, c]) => [1, 2, 3].forEach(j => ws.getRow(row).getCell(j).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }));
+  ws.getCell('A16').value = 'มุมมองลูกหนี้เทียบยอดชดเชยทั้งสิ้น (STM คอลัมน์ AL)'; ws.getCell('A16').font = { name: F, size: 16, bold: true };
+  table(ws, 17, ['รายการ', 'จำนวน (ราย)', 'จำนวนเงิน (บาท)'], [
+    ['ลูกหนี้ที่พบ STM — ยอดตั้งลูกหนี้ (ตามเรียกเก็บ)', s.matched, s.matchedDebt],
+    ['ยอดชดเชยทั้งสิ้น (STM คอลัมน์ AL)', s.matched, s.matchedAL],
+    [`ส่วนเพิ่มจากชดเชยตาม AdjRW (AL − U) · มีส่วนเพิ่ม ${s.extraN} ราย`, s.matched, s.extraSum],
+    ['ตั้งลูกหนี้ต่ำกว่ายอดชดเชยทั้งสิ้น (AL − ตั้ง เป็น +)', s.posAll, s.posAllSum],
+    ['ตั้งลูกหนี้สูงกว่ายอดชดเชยทั้งสิ้น (AL − ตั้ง เป็น −)', s.negAll, s.negAllSum],
+    ['ส่วนต่างสุทธิ (ยอดชดเชยทั้งสิ้น − ตั้งลูกหนี้)', s.matched, s.netAll],
+  ], [58, 14, 20], [3], false);
+  [[21, 'FFE2EFDA'], [22, 'FFFCE4D6']].forEach(([row, c]) => [1, 2, 3].forEach(j => ws.getRow(row).getCell(j).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c } }));
   ['ออกแบบและพัฒนาโดย', 'นายแพทย์กุลพล ตั้งรัตนาพิบูล', 'นายแพทย์ชำนาญการ (ด้านเวชกรรม)', 'ปฏิบัติหน้าที่ผู้อำนวยการโรงพยาบาลสองแคว อำเภอสองแคว จังหวัดน่าน'].forEach((t, i) => {
-    const c = ws.getCell('A' + (17 + i));
+    const c = ws.getCell('A' + (26 + i));
     c.value = i === 3 ? { text: t, hyperlink: 'https://www.songkwaehospital.com/' } : t;
     c.font = { name: F, size: 13, bold: i === 1, color: { argb: i === 3 ? 'FF0D6A62' : 'FF595959' }, underline: i === 3 };
   });
@@ -476,13 +514,18 @@ async function buildExcel() {
       R2(m.hits.reduce((a, h) => a + h.charge, 0)), +m.hits.reduce((a, h) => a + h.adjrw, 0).toFixed(4), m.u, m.diff, STLBL[m.st] + (m.note ? ' · ' + m.note : '')]),
     [7, 10, 12, 16, 12, 26, 15, 13, 12, 15, 9, 15, 16, 30], [7, 10, 12, 13]);
 
+  ws = wb.addWorksheet('เทียบยอดชดเชยทั้งสิ้น (AL)', { views: [{ state: 'frozen', ySplit: 1 }] });
+  table(ws, 1, ['ลำดับ', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'ตั้งลูกหนี้ (บาท)', 'REP', 'เบิกได้จริง (U)', 'ยอดชดเชยทั้งสิ้น (AL)', 'ส่วนเพิ่มจากชดเชยตาม AdjRW (AL − U)', 'ส่วนต่าง (AL − ตั้ง)', 'สถานะ'],
+    byAll(r.matched).map((m, i) => [i + 1, m.hn, m.an, m.cid, thDate(m.dc), m.name, m.amt, m.hits.map(h => h.rep).join(', '), m.u, m.al, m.extra, m.diffAll, STLBL_ALL[m.stAll]]),
+    [7, 10, 12, 16, 12, 26, 15, 13, 15, 17, 20, 16, 28], [7, 9, 10, 11, 12]);
+
   ws = wb.addWorksheet('ไม่พบ STM', { views: [{ state: 'frozen', ySplit: 1 }] });
   table(ws, 1, ['ลำดับ', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'ตั้งลูกหนี้ (บาท)', 'หมายเหตุ'],
     r.unmatched.map((d, i) => [i + 1, d.hn, d.an, d.cid, thDate(d.dc), d.name, d.amt, d.note]), [7, 10, 12, 16, 12, 28, 15, 40], [7]);
 
   ws = wb.addWorksheet('STM ไม่พบในลูกหนี้', { views: [{ state: 'frozen', ySplit: 1 }] });
-  table(ws, 1, ['ลำดับ', 'REP', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'เรียกเก็บใน STM', 'เบิกได้จริง (U)', 'ไฟล์ STM'],
-    r.orphan.map((s, i) => [i + 1, s.rep, s.hn, s.an, s.cid, thDate(s.dc), s.name, s.charge, s.u, s.file]), [7, 13, 10, 12, 16, 12, 26, 15, 15, 30], [8, 9]);
+  table(ws, 1, ['ลำดับ', 'REP', 'HN', 'AN', 'เลขบัตรประชาชน', 'วันจำหน่าย', 'ชื่อ-สกุล', 'เรียกเก็บใน STM', 'เบิกได้จริง (U)', 'ยอดชดเชยทั้งสิ้น (AL)', 'ไฟล์ STM'],
+    r.orphan.map((s, i) => [i + 1, s.rep, s.hn, s.an, s.cid, thDate(s.dc), s.name, s.charge, s.u, s.al, s.file]), [7, 13, 10, 12, 16, 12, 26, 15, 15, 17, 30], [8, 9, 10]);
 
   return new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -533,5 +576,3 @@ $('btnReset').addEventListener('click', () => { debtorFile = null; stmFiles = []
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => { tab = t.dataset.k; renderTable(); }));
 render();
 </script>
-</body>
-</html>
